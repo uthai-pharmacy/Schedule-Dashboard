@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>โปรแกรมจัดตารางเวร (Final Version)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai+Looped:wght@100..900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans Thai Looped', sans-serif;
+            background-color: #f8fafc; /* slate-50 */
+        }
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+        }
+        .day-cell {
+            min-height: 150px;
+            transition: background-color 0.2s ease-in-out;
+        }
+        .modal {
+            display: none;
+        }
+        .modal.active {
+            display: flex;
+        }
+        .clickable-day {
+            cursor: pointer;
+        }
+        .clickable-day:hover {
+            background-color: #e0e7ff; /* indigo-100 */
+        }
+        .day-requested-pharmacist {
+            background-color: #bae6fd !important; /* sky-200 */
+            border: 2px solid #0ea5e9; /* sky-500 */
+        }
+        .day-requested-assistant {
+            background-color: #99f6e4 !important; /* teal-200 */
+            border: 2px solid #14b8a6; /* teal-500 */
+        }
+        .day-requested-service {
+            background-color: #fde68a !important; /* amber-200 */
+            border: 2px solid #f59e0b; /* amber-500 */
+        }
+        .day-holiday {
+            background-color: #fee2e2 !important; /* red-100 */
+        }
+        .day-holiday:hover {
+             background-color: #fecaca !important; /* red-200 */
+        }
+        .summary-input {
+            width: 60px;
+            text-align: center;
+            border-radius: 0.375rem;
+            border: 1px solid #cbd5e1;
+            padding: 4px 0;
+        }
+         .summary-input:focus {
+            outline: 2px solid #4f46e5;
+            border-color: #4f46e5;
+        }
+
+        /* Print-specific styles */
+        @media print {
+            body {
+                padding: 1rem;
+                font-size: 10pt;
+                background-color: #fff;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .print-container {
+                box-shadow: none !important;
+                border: none !important;
+            }
+            main {
+                max-width: 100% !important;
+            }
+            .day-cell {
+                min-height: 100px;
+                page-break-inside: avoid;
+            }
+            .summary-input {
+                border: none;
+                background-color: transparent;
+                -webkit-appearance: none;
+                -moz-appearance: textfield;
+            }
+            .summary-input::placeholder {
+                color: #1e293b; /* slate-800 */
+                -webkit-text-fill-color: #1e293b;
+                opacity: 1;
+            }
+            input[type="number"]::-webkit-inner-spin-button,
+            input[type="number"]::-webkit-outer-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
+            }
+            .mt-8 {
+                page-break-before: auto;
+            }
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-6 lg:p-8">
+
+    <main id="app" class="max-w-screen-2xl mx-auto">
+        <!-- Main Navigation -->
+        <div class="flex border-b border-slate-200 mb-6 no-print">
+            <button id="nav-dashboard" class="px-4 py-3 font-semibold text-indigo-600 border-b-2 border-indigo-600">ตารางเวร</button>
+            <button id="nav-staff" class="px-4 py-3 font-semibold text-slate-500 hover:text-indigo-600">จัดการบุคลากร</button>
+        </div>
+
+        <!-- Page Content -->
+        <div id="page-content">
+            <!-- Content will be rendered here -->
+        </div>
+    </main>
+
+    <!-- Modals -->
+    <div id="modal-container">
+        <!-- Modals will be injected here -->
+    </div>
+
+
+<script>
+// ===================================================================================
+// APP STATE & DATABASE (using localStorage)
+// ===================================================================================
+let state = {
+    currentPage: 'dashboard',
+    isRequestMode: false,
+    isHolidayMode: false,
+    requestModePosition: 'All',
+    requestModeStaffId: null,
+    staff: JSON.parse(localStorage.getItem('schedule_staff_v1_9')) || [
+        { id: 1, fname: 'ณฤทัย', lname: 'มุนินทร์นิมิตต์', nickname: 'ฝ้าย', position: 'เภสัชกร', status: 'ปฏิบัติงาน' },
+        { id: 2, fname: 'ริณวรา', lname: 'ตรัยวิทยา', nickname: 'แอน', position: 'เภสัชกร', status: 'ปฏิบัติงาน' },
+        { id: 3, fname: 'วทันยา', lname: 'วิริศิลป์', nickname: 'แนน', position: 'เภสัชกร', status: 'ปฏิบัติงาน' },
+        { id: 4, fname: 'นราวิชญ์', lname: 'คำยวง', nickname: 'เน็ท', position: 'เภสัชกร', status: 'ปฏิบัติงาน' },
+        { id: 5, fname: 'รดา', lname: 'จิบสมานบุญ', nickname: 'ล็อต', position: 'เภสัชกร', status: 'ปฏิบัติงาน' },
+        { id: 6, fname: 'ลัทธนวรรณ', lname: 'ศรนรายณ์', nickname: 'เนย', position: 'เภสัชกร', status: 'ปฏิบัติงาน' },
+        { id: 7, fname: 'วนิดา', lname: 'การีกลิ่น', nickname: 'ดา', position: 'เจ้าพนักงานเภสัชกรรม', status: 'ปฏิบัติงาน' },
+        { id: 8, fname: 'พัฒน์นรี', lname: 'ไกรเสนีย์', nickname: 'ลี', position: 'เจ้าพนักงานเภสัชกรรม', status: 'ปฏิบัติงาน' },
+        { id: 9, fname: 'ณัฐค์ภานี', lname: 'ชาดี', nickname: 'ครีม', position: 'เจ้าพนักงานเภสัชกรรม', status: 'ปฏิบัติงาน' },
+        { id: 10, fname: 'วรรณพร', lname: 'เขตต์บางกุ้ง', nickname: 'กล้วย', position: 'เจ้าพนักงานเภสัชกรรม', status: 'ปฏิบัติงาน' },
+        { id: 11, fname: 'วีระศักดิ์', lname: 'พิณเสนาะ', nickname: 'เอ็ม', position: 'พนักงานบริการ', status: 'ปฏิบัติงาน' },
+        { id: 12, fname: 'อนุวัฒน์', lname: 'จันทร์เพ็ชรพะเนา', nickname: 'บอส', position: 'พนักงานบริการ', status: 'ปฏิบัติงาน' },
+    ],
+    schedule: JSON.parse(localStorage.getItem('schedule_data_v1_9')) || {},
+    requests: JSON.parse(localStorage.getItem('schedule_requests_v1_9')) || [],
+    holidays: JSON.parse(localStorage.getItem('schedule_holidays_v1_9')) || [],
+    scheduleTargets: JSON.parse(localStorage.getItem('schedule_targets_v1_9')) || {},
+    currentYear: new Date().getFullYear(),
+    currentMonth: new Date().getMonth()
+};
+
+function saveState() {
+    localStorage.setItem('schedule_staff_v1_9', JSON.stringify(state.staff));
+    localStorage.setItem('schedule_data_v1_9', JSON.stringify(state.schedule));
+    localStorage.setItem('schedule_requests_v1_9', JSON.stringify(state.requests));
+    localStorage.setItem('schedule_holidays_v1_9', JSON.stringify(state.holidays));
+    localStorage.setItem('schedule_targets_v1_9', JSON.stringify(state.scheduleTargets));
+}
+
+// ===================================================================================
+// RENDER FUNCTIONS
+// ===================================================================================
+const pageContent = document.getElementById('page-content');
+const modalContainer = document.getElementById('modal-container');
+
+function render() {
+    updateNav();
+    if (state.currentPage === 'dashboard') renderDashboard();
+    else if (state.currentPage === 'staff') renderStaffManagement();
+}
+
+function updateNav() {
+    ['dashboard', 'staff'].forEach(page => {
+        const navBtn = document.getElementById(`nav-${page}`);
+        if(navBtn) {
+            const isActive = state.currentPage === page;
+            navBtn.classList.toggle('text-indigo-600', isActive);
+            navBtn.classList.toggle('border-indigo-600', isActive);
+            navBtn.classList.toggle('text-slate-500', !isActive);
+        }
+    });
+}
+
+function renderDashboard() {
+    const monthNames = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+    const date = new Date(state.currentYear, state.currentMonth, 1);
+    const firstDay = date.getDay();
+    const daysInMonth = new Date(state.currentYear, state.currentMonth + 1, 0).getDate();
+    
+    let dayCells = Array(firstDay).fill('<div class="day-cell p-2 border-r border-b border-slate-200 bg-slate-50"></div>').join('');
+
+    for (let day = 1; day <= daysInMonth; day++) {
+        const fullDate = `${state.currentYear}-${String(state.currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayOfWeek = new Date(state.currentYear, state.currentMonth, day).getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const isHoliday = state.holidays.includes(fullDate);
+        const isHolidayOrWeekend = isWeekend || isHoliday;
+        
+        const scheduleForDay = state.schedule[fullDate] || {};
+        const approvedLeaves = state.requests.filter(r => r.date === fullDate && r.status === 'approved');
+
+        const getStaffName = id => {
+            const staff = state.staff.find(s => s.id == id);
+            if (!staff) return '...';
+            return staff.nickname || staff.fname;
+        };
+        
+        let leaveHTML = approvedLeaves.map(leave => {
+            const staff = state.staff.find(s => s.id === leave.staffId);
+            if (!staff) return '';
+
+            let colors = { bg: 'bg-slate-50', border: 'border-slate-400', text: 'text-slate-800', textLight: 'text-slate-700' };
+            if (staff.position === 'เภสัชกร') {
+                colors = { bg: 'bg-sky-50', border: 'border-sky-400', text: 'text-sky-800', textLight: 'text-sky-700' };
+            } else if (staff.position === 'เจ้าพนักงานเภสัชกรรม') {
+                colors = { bg: 'bg-teal-50', border: 'border-teal-400', text: 'text-teal-800', textLight: 'text-teal-700' };
+            } else if (staff.position === 'พนักงานบริการ') {
+                colors = { bg: 'bg-amber-50', border: 'border-amber-400', text: 'text-amber-800', textLight: 'text-amber-700' };
+            }
+
+            return `<div class="${colors.bg} p-2 rounded-lg border-l-4 ${colors.border} text-center">
+                        <p class="font-semibold ${colors.text} text-xs">Request OFF</p>
+                        <p class="text-xs ${colors.textLight} mt-1">${getStaffName(staff.id)}</p>
+                    </div>`;
+        }).join('');
+
+        let shiftsHTML = '';
+        if (!state.isRequestMode && !state.isHolidayMode) {
+            if (isHolidayOrWeekend) {
+                shiftsHTML = `<div class="bg-white p-2 rounded-lg shadow-sm border-l-4 border-green-400 cursor-pointer hover:shadow-md transition-shadow" onclick="openScheduleModal('${fullDate}', 'weekend')">
+                    <p class="font-semibold text-green-800 text-xs">เวรวันหยุด กะ เช้า + บ่าย</p>
+                    <p class="text-xs text-slate-600 mt-1">ภก: ${getStaffName(scheduleForDay.pharmacistId)}</p>
+                    <p class="text-xs text-slate-600">จพ: ${getStaffName(scheduleForDay.assistantId)}</p>
+                    <hr class="my-1">
+                    <p class="font-semibold text-gray-600 text-xs">กะเช้า</p>
+                    <p class="text-xs text-slate-600">พนง: ${getStaffName(scheduleForDay.staffId)}</p>
+                </div>`;
+            } else {
+                const afternoonShift = scheduleForDay.afternoon || {};
+                shiftsHTML += `<div class="bg-white p-2 rounded-lg shadow-sm border-l-4 border-violet-400 cursor-pointer hover:shadow-md transition-shadow" onclick="openScheduleModal('${fullDate}', 'afternoon')">
+                    <p class="font-semibold text-violet-800 text-xs">กะบ่าย</p>
+                    <p class="text-xs text-slate-600 mt-1">ภก: ${getStaffName(afternoonShift.pharmacist)}</p>
+                    <p class="text-xs text-slate-600">จพ: ${getStaffName(afternoonShift.assistant)}</p>
+                </div>`;
+            }
+        }
+        
+        let holidayIndicatorHTML = isHoliday && !isWeekend ? `<div class="absolute top-1.5 right-1.5 text-xs bg-red-500 text-white rounded-full h-5 w-5 flex items-center justify-center font-bold" title="วันหยุดนักขัตฤกษ์">น</div>` : '';
+        
+        const isRequested = state.isRequestMode && state.requests.some(r => r.date === fullDate && r.staffId === state.requestModeStaffId && r.status === 'approved');
+        
+        let dayCellClasses = `day-cell p-2 border-r border-b border-slate-200 relative`;
+        if (state.isRequestMode) dayCellClasses += ' clickable-day';
+        if (state.isHolidayMode) dayCellClasses += ' clickable-day';
+        
+        if (isRequested) {
+            const selectedStaff = state.staff.find(s => s.id === state.requestModeStaffId);
+            if (selectedStaff) {
+                if (selectedStaff.position === 'เภสัชกร') {
+                    dayCellClasses += ' day-requested-pharmacist';
+                } else if (selectedStaff.position === 'เจ้าพนักงานเภสัชกรรม') {
+                    dayCellClasses += ' day-requested-assistant';
+                } else if (selectedStaff.position === 'พนักงานบริการ') {
+                    dayCellClasses += ' day-requested-service';
+                }
+            }
+        }
+
+        if (isHoliday) dayCellClasses += ' day-holiday';
+        if (isWeekend && !isHoliday) dayCellClasses += ' bg-slate-50';
+
+        const dayCellOnClick = state.isRequestMode ? `onclick="toggleDayRequest('${fullDate}')"` : (state.isHolidayMode ? `onclick="toggleHoliday('${fullDate}')"` : '');
+
+        dayCells += `<div class="${dayCellClasses}" ${dayCellOnClick}>
+            ${holidayIndicatorHTML}
+            <div class="font-bold text-slate-600">${day}</div>
+            <div class="mt-1.5 space-y-2">${leaveHTML}${shiftsHTML}</div>
+        </div>`;
+    }
+    
+    const positions = ['All', 'เภสัชกร', 'เจ้าพนักงานเภสัชกรรม', 'พนักงานบริการ'];
+    const positionOptions = positions.map(p => `<option value="${p}" ${p === state.requestModePosition ? 'selected' : ''}>${p === 'All' ? 'ทุกตำแหน่ง' : p}</option>`).join('');
+    
+    const filteredStaff = state.staff.filter(s => s.status === 'ปฏิบัติงาน' && (state.requestModePosition === 'All' || s.position === state.requestModePosition));
+    const staffOptions = filteredStaff.map(s => `<option value="${s.id}" ${s.id === state.requestModeStaffId ? 'selected' : ''}>${s.fname} ${s.lname}</option>`).join('');
+
+    const requestModeControls = `
+        <div class="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-indigo-500 shadow-2xl p-4 z-50 no-print">
+            <div class="max-w-screen-2xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div class="flex items-center gap-3">
+                     <span class="font-bold text-indigo-700 text-lg">โหมดจัดการวันหยุดส่วนตัว:</span>
+                     <select onchange="setRequestModePosition(this.value)" class="rounded-md border-slate-300 shadow-sm">${positionOptions}</select>
+                     <select id="request-staff-selector" onchange="setRequestModeStaff(this.value)" class="rounded-md border-slate-300 shadow-sm">${staffOptions}</select>
+                </div>
+                <button onclick="exitRequestMode()" class="w-full sm:w-auto bg-indigo-600 text-white font-semibold px-6 py-2 rounded-lg shadow-sm hover:bg-indigo-700">เสร็จสิ้น</button>
+            </div>
+        </div>
+    `;
+
+    const holidayModeControls = `
+         <div class="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-red-500 shadow-2xl p-4 z-50 no-print">
+            <div class="max-w-screen-2xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
+                <div>
+                     <span class="font-bold text-red-700 text-lg">โหมดจัดการวันหยุดนักขัตฤกษ์:</span>
+                     <p class="text-sm text-slate-600">คลิกบนวันที่ในปฏิทินเพื่อกำหนดหรือยกเลิกวันหยุด</p>
+                </div>
+                 <button onclick="exitHolidayMode()" class="w-full sm:w-auto bg-red-600 text-white font-semibold px-6 py-2 rounded-lg shadow-sm hover:bg-red-700 ml-6">เสร็จสิ้น</button>
+            </div>
+        </div>
+    `;
+
+    const holidayBtnClasses = state.isHolidayMode ? 'bg-red-100 border-red-500 text-red-700' : 'bg-white border-slate-300 text-slate-700';
+    const requestBtnClasses = state.isRequestMode ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white border-slate-300 text-slate-700';
+    
+    const summaryTableHTML = renderSummaryTable();
+
+    pageContent.innerHTML = `
+        <div>
+             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 no-print">
+                <div>
+                    <h1 class="text-3xl font-bold text-slate-800">Schedule Dashboard</h1>
+                    <p class="text-slate-500 mt-1">ภาพรวมตารางเวรฝ่ายเภสัชกรรม</p>
+                </div>
+                <div class="flex items-center space-x-3 mt-4 sm:mt-0 flex-wrap gap-2">
+                    <button onclick="enterRequestMode()" class="flex items-center space-x-2 border font-semibold px-4 py-2 rounded-lg shadow-sm hover:bg-blue-50 transition-colors duration-200 ${requestBtnClasses}">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                        <span>จัดการวันหยุดส่วนตัว</span>
+                    </button>
+                    <button onclick="enterHolidayMode()" class="flex items-center space-x-2 border font-semibold px-4 py-2 rounded-lg shadow-sm hover:bg-red-50 transition-colors duration-200 ${holidayBtnClasses}">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        <span>จัดการวันหยุดนักขัตฤกษ์</span>
+                    </button>
+                    <button onclick="runAutoScheduler()" class="flex items-center space-x-2 bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg shadow-sm hover:bg-indigo-700 transition-colors duration-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                        <span>จัดตารางเวรอัตโนมัติ</span>
+                    </button>
+                     <button onclick="clearSchedule()" class="flex items-center space-x-2 bg-red-500 text-white font-semibold px-4 py-2 rounded-lg shadow-sm hover:bg-red-600 transition-colors duration-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                        <span>ล้างตารางเวร</span>
+                    </button>
+                    <button onclick="window.print()" class="flex items-center space-x-2 bg-white border border-slate-300 text-slate-700 font-semibold px-4 py-2 rounded-lg shadow-sm hover:bg-slate-50 transition-colors duration-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v3a2 2 0 002 2h6a2 2 0 002-2v-3h1a2 2 0 002-2v-3a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clip-rule="evenodd" /></svg>
+                        <span>พิมพ์ / บันทึก</span>
+                    </button>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 print-container">
+                <div class="flex justify-between items-center p-4 border-b border-slate-200">
+                    <button onclick="changeMonth(-1)" class="p-2 rounded-full hover:bg-slate-100 transition-colors no-print"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg></button>
+                    <h2 class="text-xl font-bold text-slate-700">${monthNames[state.currentMonth]} ${state.currentYear + 543}</h2>
+                    <button onclick="changeMonth(1)" class="p-2 rounded-full hover:bg-slate-100 transition-colors no-print"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg></button>
+                </div>
+                <div>
+                    <div class="calendar-grid text-sm font-semibold text-center text-slate-500">
+                         <div class="py-3 border-b border-slate-200">อาทิตย์</div><div class="py-3 border-b border-slate-200">จันทร์</div><div class="py-3 border-b border-slate-200">อังคาร</div><div class="py-3 border-b border-slate-200">พุธ</div><div class="py-3 border-b border-slate-200">พฤหัสบดี</div><div class="py-3 border-b border-slate-200">ศุกร์</div><div class="py-3 border-b border-slate-200">เสาร์</div>
+                    </div>
+                    <div class="calendar-grid">${dayCells}</div>
+                </div>
+            </div>
+            ${summaryTableHTML}
+        </div>
+        ${state.isRequestMode ? requestModeControls : ''}
+        ${state.isHolidayMode ? holidayModeControls : ''}
+    `;
+}
+
+function renderStaffManagement() {
+    let staffRows = state.staff.map(person => `
+        <tr class="hover:bg-slate-50 transition-colors">
+            <td class="whitespace-nowrap px-4 py-3 font-medium text-slate-800">${person.fname} ${person.lname}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-slate-600">${person.nickname || '-'}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-slate-600">${person.position}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-slate-600 text-center">
+                <span class="inline-flex items-center justify-center rounded-full ${person.status === 'ปฏิบัติงาน' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'} px-2.5 py-0.5">
+                    <p class="whitespace-nowrap text-sm">${person.status}</p>
+                </span>
+            </td>
+            <td class="whitespace-nowrap px-4 py-3 text-slate-600">
+                <button onclick="openModal('staff', { id: ${person.id} })" class="text-indigo-600 hover:text-indigo-800 font-semibold">แก้ไข</button>
+                <button onclick="deleteStaff(${person.id})" class="text-red-600 hover:text-red-800 font-semibold ml-4">ลบ</button>
+            </td>
+        </tr>
+    `).join('');
+
+    pageContent.innerHTML = `
+        <div>
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                <div>
+                    <h1 class="text-3xl font-bold text-slate-800">จัดการบุคลากร</h1>
+                    <p class="text-slate-500 mt-1">เพิ่ม ลบ และแก้ไขข้อมูลบุคลากรในระบบ</p>
+                </div>
+                <div class="mt-4 sm:mt-0">
+                    <button onclick="openModal('staff')" class="flex items-center space-x-2 bg-indigo-600 text-white font-semibold px-5 py-2.5 rounded-lg shadow-sm hover:bg-indigo-700 transition-colors duration-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+                        <span>เพิ่มบุคลากรใหม่</span>
+                    </button>
+                </div>
+            </div>
+            <div class="overflow-x-auto bg-white rounded-2xl shadow-sm border border-slate-200">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-slate-50">
+                        <tr>
+                            <th class="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-600">ชื่อ-สกุล</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-600">ชื่อเล่น</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-600">ตำแหน่ง</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-center font-semibold text-slate-600">สถานะ</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-600">การดำเนินการ</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200">${staffRows}</tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+function renderSummaryTable() {
+    const summaryData = calculateScheduleSummary();
+
+    const staffRows = state.staff.map(person => {
+        const summary = summaryData[person.id] || { weekdayShifts: 0, holidayShifts: 0, totalHours: 0 };
+        const targets = state.scheduleTargets[person.id] || {};
+
+        let firstCellBorderStyle = '';
+        if (person.position === 'เภสัชกร') {
+            firstCellBorderStyle = 'border-l-4 border-sky-400';
+        } else if (person.position === 'เจ้าพนักงานเภสัชกรรม') {
+            firstCellBorderStyle = 'border-l-4 border-teal-400';
+        } else if (person.position === 'พนักงานบริการ') {
+            firstCellBorderStyle = 'border-l-4 border-amber-400';
+        }
+
+        return `
+            <tr class="hover:bg-slate-50 transition-colors">
+                <td class="whitespace-nowrap px-4 py-3 font-medium text-slate-800 ${firstCellBorderStyle}">${person.fname} ${person.lname}</td>
+                <td class="whitespace-nowrap px-4 py-3 text-slate-600">${person.nickname || '-'}</td>
+                <td class="whitespace-nowrap px-4 py-3 text-slate-600">${person.position}</td>
+                <td class="whitespace-nowrap px-4 py-3 text-slate-600 text-center">
+                    <input type="number" class="summary-input" value="${targets.weekdayShifts ?? ''}" onchange="updateTarget(${person.id}, 'weekdayShifts', this.value)" placeholder="${summary.weekdayShifts}">
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 text-slate-600 text-center">
+                    <input type="number" class="summary-input" value="${targets.holidayShifts ?? ''}" onchange="updateTarget(${person.id}, 'holidayShifts', this.value)" placeholder="${summary.holidayShifts}">
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 text-slate-800 font-semibold text-center">
+                     ${summary.totalHours}
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    return `
+        <div class="mt-8">
+             <div class="flex items-center justify-between mb-4 no-print">
+                <h2 class="text-2xl font-bold text-slate-800">สรุปและเป้าหมายเวรประจำเดือน</h2>
+                <p class="text-sm text-slate-500">กรอกตัวเลขในช่องเพื่อกำหนดเป้าหมาย จากนั้นกด "จัดตารางเวรอัตโนมัติ"</p>
+             </div>
+              <h2 class="text-2xl font-bold text-slate-800 mb-4 hidden print:block">สรุปเวรประจำเดือน</h2>
+             <div class="overflow-x-auto bg-white rounded-2xl shadow-sm border border-slate-200 print-container">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-slate-50">
+                        <tr>
+                            <th class="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-600">ชื่อ-สกุล</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-600">ชื่อเล่น</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-600">ตำแหน่ง</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-center font-semibold text-slate-600">เวรวันธรรมดา (ครั้ง)</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-center font-semibold text-slate-600">เวรวันหยุด (ครั้ง)</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-center font-semibold text-slate-600">ชั่วโมงรวม (คำนวณ)</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200">${staffRows}</tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+
+// ===================================================================================
+// MODAL HANDLERS
+// ===================================================================================
+function openModal(type, data = {}) {
+    let modalHTML = '';
+    if (type === 'staff') {
+        const isEditing = data.id != null;
+        const person = isEditing ? state.staff.find(p => p.id === data.id) : { id: null, fname: '', lname: '', nickname: '', position: 'เภสัชกร', status: 'ปฏิบัติงาน' };
+        modalHTML = `
+            <div class="modal active fixed inset-0 bg-slate-900 bg-opacity-50 items-center justify-center p-4" onclick="closeModal(event)">
+                <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+                    <div class="p-6 border-b"><h3 class="text-xl font-bold text-slate-800">${isEditing ? 'แก้ไขข้อมูลบุคลากร' : 'เพิ่มบุคลากรใหม่'}</h3></div>
+                    <div class="p-6 space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div><label class="text-sm font-medium text-slate-700">ชื่อ</label><input id="fname-input" type="text" value="${person.fname}" class="mt-1 w-full rounded-md border-slate-300 shadow-sm"></div>
+                            <div><label class="text-sm font-medium text-slate-700">นามสกุล</label><input id="lname-input" type="text" value="${person.lname}" class="mt-1 w-full rounded-md border-slate-300 shadow-sm"></div>
+                        </div>
+                        <div><label class="text-sm font-medium text-slate-700">ชื่อเล่น (สำหรับแสดงผล)</label><input id="nickname-input" type="text" value="${person.nickname || ''}" class="mt-1 w-full rounded-md border-slate-300 shadow-sm"></div>
+                        <div><label class="text-sm font-medium text-slate-700">ตำแหน่ง</label><select id="position-input" class="mt-1 w-full rounded-md border-slate-300 shadow-sm"><option ${person.position === 'เภสัชกร' ? 'selected' : ''}>เภสัชกร</option><option ${person.position === 'เจ้าพนักงานเภสัชกรรม' ? 'selected' : ''}>เจ้าพนักงานเภสัชกรรม</option><option ${person.position === 'พนักงานบริการ' ? 'selected' : ''}>พนักงานบริการ</option></select></div>
+                        <div><label class="text-sm font-medium text-slate-700">สถานะ</label><select id="status-input" class="mt-1 w-full rounded-md border-slate-300 shadow-sm"><option ${person.status === 'ปฏิบัติงาน' ? 'selected' : ''}>ปฏิบัติงาน</option><option ${person.status === 'ไม่พร้อมปฏิบัติงาน' ? 'selected' : ''}>ไม่พร้อมปฏิบัติงาน</option></select></div>
+                    </div>
+                    <div class="p-6 bg-slate-50 flex justify-end space-x-3 rounded-b-lg"><button class="modal-close bg-white border border-slate-300 text-slate-700 font-semibold px-4 py-2 rounded-lg shadow-sm hover:bg-slate-50">ยกเลิก</button><button onclick="saveStaff(${data.id})" class="bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg shadow-sm hover:bg-indigo-700">บันทึก</button></div>
+                </div>
+            </div>`;
+    } else if (type === 'confirm') {
+        modalHTML = `
+            <div class="modal active fixed inset-0 bg-slate-900 bg-opacity-50 items-center justify-center p-4 no-print" onclick="closeModal(event)">
+                 <div class="bg-white rounded-lg shadow-xl w-full max-w-sm">
+                    <div class="p-6">
+                        <h3 class="text-lg font-bold text-slate-800">ยืนยันการดำเนินการ</h3>
+                        <p class="text-slate-600 mt-2 text-sm">${data.message || 'คุณแน่ใจหรือไม่?'}</p>
+                    </div>
+                    <div class="p-4 bg-slate-50 flex justify-end space-x-3 rounded-b-lg">
+                        <button class="modal-close bg-white border border-slate-300 text-slate-700 font-semibold px-4 py-2 rounded-lg shadow-sm hover:bg-slate-50">ยกเลิก</button>
+                        <button onclick="${data.onConfirm}" class="bg-red-600 text-white font-semibold px-4 py-2 rounded-lg shadow-sm hover:bg-red-700">ยืนยัน</button>
+                    </div>
+                 </div>
+            </div>
+        `;
+    }
+    modalContainer.innerHTML = modalHTML;
+}
+
+function openScheduleModal(date, shiftType) {
+    const approvedLeaveStaffIds = state.requests.filter(r => r.date === date && r.status === 'approved').map(r => r.staffId);
+    
+    const createSelect = (position, selectedId) => {
+        const options = state.staff
+            .filter(s => s.position === position && s.status === 'ปฏิบัติงาน' && !approvedLeaveStaffIds.includes(s.id))
+            .map(s => `<option value="${s.id}" ${s.id == selectedId ? 'selected' : ''}>${s.fname} ${s.lname}</option>`)
+            .join('');
+        return `<select class="mt-1 w-full rounded-md border-slate-300 shadow-sm"><option value="">-- ว่าง --</option>${options}</select>`;
+    };
+    
+    let fields = '';
+    let title = '';
+
+    if (shiftType === 'weekend') {
+        const currentDaySchedule = state.schedule[date] || {};
+        title = `จัดเวรวันหยุดสำหรับวันที่ ${date}`;
+        fields = `
+            <div><label class="text-sm font-medium text-slate-700">เภสัชกร (เต็มวัน)</label>${createSelect('เภสัชกร', currentDaySchedule.pharmacistId)}</div>
+            <div><label class="text-sm font-medium text-slate-700">เจ้าพนักงานเภสัชกรรม (เต็มวัน)</label>${createSelect('เจ้าพนักงานเภสัชกรรม', currentDaySchedule.assistantId)}</div>
+            <div><label class="text-sm font-medium text-slate-700">พนักงานบริการ (กะเช้า)</label>${createSelect('พนักงานบริการ', currentDaySchedule.staffId)}</div>
+        `;
+    } else { // afternoon
+        const currentShift = state.schedule[date]?.afternoon || {};
+        title = `จัดเวรกะบ่ายสำหรับวันที่ ${date}`;
+        fields = `
+            <div><label class="text-sm font-medium text-slate-700">เภสัชกร</label>${createSelect('เภสัชกร', currentShift.pharmacist)}</div>
+            <div><label class="text-sm font-medium text-slate-700">เจ้าพนักงานเภสัชกรรม</label>${createSelect('เจ้าพนักงานเภสัชกรรม', currentShift.assistant)}</div>
+        `;
+    }
+
+    modalContainer.innerHTML = `
+        <div class="modal active fixed inset-0 bg-slate-900 bg-opacity-50 items-center justify-center p-4" onclick="closeModal(event)">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+                <div class="p-6 border-b"><h3 class="text-xl font-bold text-slate-800">${title}</h3></div>
+                <div class="p-6 space-y-4" id="schedule-form-fields">${fields}</div>
+                <div class="p-6 bg-slate-50 flex justify-end space-x-3 rounded-b-lg"><button class="modal-close bg-white border border-slate-300 text-slate-700 font-semibold px-4 py-2 rounded-lg shadow-sm hover:bg-slate-50">ยกเลิก</button><button onclick="saveSchedule('${date}', '${shiftType}')" class="bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg shadow-sm hover:bg-indigo-700">บันทึก</button></div>
+            </div>
+        </div>`;
+}
+
+function closeModal(event) {
+    if (event.target === event.currentTarget || event.target.classList.contains('modal-close')) {
+        modalContainer.innerHTML = '';
+    }
+}
+
+// ===================================================================================
+// DATA MANIPULATION & CALCULATION
+// ===================================================================================
+function navigate(page) { state.currentPage = page; render(); }
+function changeMonth(delta) { state.currentMonth += delta; if (state.currentMonth < 0) { state.currentMonth = 11; state.currentYear--; } else if (state.currentMonth > 11) { state.currentMonth = 0; state.currentYear++; } render(); }
+function deleteStaff(id) {
+    openModal('confirm', {
+        message: 'คุณแน่ใจหรือไม่ว่าต้องการลบบุคลากรท่านนี้? การดำเนินการนี้ไม่สามารถย้อนกลับได้',
+        onConfirm: `confirmDeleteStaff(${id})`
+    });
+}
+function confirmDeleteStaff(id) {
+    state.staff = state.staff.filter(p => p.id !== id);
+    saveState();
+    modalContainer.innerHTML = ''; // Close confirmation modal
+    render();
+}
+
+function saveStaff(id) {
+    const isEditing = id != null;
+    const fname = document.getElementById('fname-input').value.trim();
+    const lname = document.getElementById('lname-input').value.trim();
+    const nickname = document.getElementById('nickname-input').value.trim();
+
+    if (!fname || !lname) { alert('กรุณากรอกชื่อและนามสกุล'); return; }
+    const staffData = { fname, lname, nickname, position: document.getElementById('position-input').value, status: document.getElementById('status-input').value };
+    if (isEditing) {
+        const index = state.staff.findIndex(p => p.id === id);
+        state.staff[index] = { ...state.staff[index], ...staffData };
+    } else {
+        const newId = state.staff.length > 0 ? Math.max(...state.staff.map(p => p.id)) + 1 : 1;
+        state.staff.push({ id: newId, ...staffData });
+    }
+    saveState();
+    modalContainer.innerHTML = '';
+    render();
+}
+
+function saveSchedule(date, shiftType) {
+    const form = document.getElementById('schedule-form-fields');
+    const selects = form.getElementsByTagName('select');
+    if (!state.schedule[date]) state.schedule[date] = {};
+
+    if (shiftType === 'weekend') {
+        state.schedule[date] = {
+            pharmacistId: selects[0].value ? parseInt(selects[0].value) : null,
+            assistantId: selects[1].value ? parseInt(selects[1].value) : null,
+            staffId: selects[2].value ? parseInt(selects[2].value) : null,
+        };
+    } else { // afternoon
+        state.schedule[date].afternoon = {
+            pharmacist: selects[0].value ? parseInt(selects[0].value) : null,
+            assistant: selects[1].value ? parseInt(selects[1].value) : null,
+        };
+    }
+    
+    saveState();
+    modalContainer.innerHTML = '';
+    render();
+}
+
+function calculateScheduleSummary() {
+    const summary = {};
+    state.staff.forEach(staff => {
+        summary[staff.id] = { weekdayShifts: 0, holidayShifts: 0, totalHours: 0 };
+    });
+
+    const daysInMonth = new Date(state.currentYear, state.currentMonth + 1, 0).getDate();
+
+    for (let day = 1; day <= daysInMonth; day++) {
+        const fullDate = `${state.currentYear}-${String(state.currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayOfWeek = new Date(state.currentYear, state.currentMonth, day).getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const isHoliday = state.holidays.includes(fullDate);
+        const isHolidayOrWeekend = isWeekend || isHoliday;
+
+        const scheduleForDay = state.schedule[fullDate];
+        if (!scheduleForDay) continue;
+
+        if (isHolidayOrWeekend) {
+            if (scheduleForDay.pharmacistId && summary[scheduleForDay.pharmacistId]) {
+                summary[scheduleForDay.pharmacistId].holidayShifts++;
+                summary[scheduleForDay.pharmacistId].totalHours += 12;
+            }
+            if (scheduleForDay.assistantId && summary[scheduleForDay.assistantId]) {
+                summary[scheduleForDay.assistantId].holidayShifts++;
+                summary[scheduleForDay.assistantId].totalHours += 12;
+            }
+            if (scheduleForDay.staffId && summary[scheduleForDay.staffId]) {
+                summary[scheduleForDay.staffId].holidayShifts++;
+                summary[scheduleForDay.staffId].totalHours += 8;
+            }
+        } else {
+            const afternoonShift = scheduleForDay.afternoon;
+            if (afternoonShift) {
+                if (afternoonShift.pharmacist && summary[afternoonShift.pharmacist]) {
+                    summary[afternoonShift.pharmacist].weekdayShifts++;
+                    summary[afternoonShift.pharmacist].totalHours += 4;
+                }
+                if (afternoonShift.assistant && summary[afternoonShift.assistant]) {
+                    summary[afternoonShift.assistant].weekdayShifts++;
+                    summary[afternoonShift.assistant].totalHours += 4;
+                }
+            }
+        }
+    }
+    return summary;
+}
+
+function updateTarget(staffId, key, value) {
+    if (!state.scheduleTargets[staffId]) {
+        state.scheduleTargets[staffId] = {};
+    }
+    const numValue = value.trim() === '' ? null : parseInt(value, 10);
+    if (numValue === null || (!isNaN(numValue) && numValue >= 0)) {
+         state.scheduleTargets[staffId][key] = numValue;
+    } else {
+        // Re-render to show the old value if input is invalid
+        render();
+    }
+}
+
+// --- REQUEST MODE FUNCTIONS ---
+function enterRequestMode() {
+    exitHolidayMode(false);
+    state.isRequestMode = true;
+    if (!state.requestModePosition) {
+        state.requestModePosition = 'All';
+    }
+    const filteredStaff = state.staff.filter(s => s.status === 'ปฏิบัติงาน' && (state.requestModePosition === 'All' || s.position === state.requestModePosition));
+    const currentStaffExistsInFilter = filteredStaff.some(s => s.id === state.requestModeStaffId);
+    if (!state.requestModeStaffId || !currentStaffExistsInFilter) {
+        state.requestModeStaffId = filteredStaff.length > 0 ? filteredStaff[0].id : null;
+    }
+    render();
+}
+
+function exitRequestMode() {
+    state.isRequestMode = false;
+    saveState();
+    render();
+}
+
+function setRequestModePosition(position) {
+    state.requestModePosition = position;
+    const filteredStaff = state.staff.filter(s => s.status === 'ปฏิบัติงาน' && (state.requestModePosition === 'All' || s.position === state.requestModePosition));
+    state.requestModeStaffId = filteredStaff.length > 0 ? filteredStaff[0].id : null;
+    render();
+}
+
+function setRequestModeStaff(staffId) {
+    state.requestModeStaffId = parseInt(staffId);
+    render();
+}
+
+function toggleDayRequest(date) {
+    if (!state.requestModeStaffId) return;
+    const existingRequestIndex = state.requests.findIndex(r => r.date === date && r.staffId === state.requestModeStaffId);
+
+    if (existingRequestIndex > -1) {
+        state.requests.splice(existingRequestIndex, 1);
+    } else {
+        const newId = state.requests.length > 0 ? Math.max(...state.requests.map(r => r.id)) + 1 : 1;
+        state.requests.push({
+            id: newId,
+            staffId: state.requestModeStaffId,
+            date: date,
+            reason: '',
+            status: 'approved'
+        });
+    }
+    render();
+}
+
+// --- HOLIDAY MODE FUNCTIONS ---
+function enterHolidayMode() {
+    exitRequestMode(false);
+    state.isHolidayMode = true;
+    render();
+}
+
+function exitHolidayMode(shouldRender = true) {
+    state.isHolidayMode = false;
+    saveState();
+    if(shouldRender) render();
+}
+
+function toggleHoliday(date) {
+    const holidayIndex = state.holidays.indexOf(date);
+    if (holidayIndex > -1) {
+        state.holidays.splice(holidayIndex, 1);
+    } else {
+        state.holidays.push(date);
+    }
+    render();
+}
+
+// ===================================================================================
+// AUTO SCHEDULER & CLEAR
+// ===================================================================================
+
+function clearSchedule() {
+     openModal('confirm', {
+        message: 'คุณแน่ใจหรือไม่ว่าต้องการล้างข้อมูลตารางเวรและเป้าหมายทั้งหมด?',
+        onConfirm: 'confirmClearSchedule()'
+    });
+}
+function confirmClearSchedule() {
+    state.schedule = {};
+    state.scheduleTargets = {};
+    saveState();
+    modalContainer.innerHTML = '';
+    render();
+}
+
+function runAutoScheduler() {
+    openModal('confirm', {
+        message: 'ระบบจะล้างตารางเวรปัจจุบันและคำนวณใหม่ทั้งหมดตามเป้าหมายที่กำหนด ยืนยันหรือไม่?',
+        onConfirm: 'confirmAutoScheduler()'
+    });
+}
+
+function confirmAutoScheduler() {
+    modalContainer.innerHTML = ''; // close confirm
+    // Show a simple loading indicator
+    document.body.style.cursor = 'wait';
+
+    // Use setTimeout to allow UI to update before heavy calculation
+    setTimeout(() => {
+        autoScheduleAlgorithm();
+        saveState();
+        document.body.style.cursor = 'default';
+        render();
+    }, 100);
+}
+
+function autoScheduleAlgorithm() {
+    // 1. Reset current schedule and initialize counters
+    state.schedule = {};
+    const currentCounts = {};
+    const availableStaff = state.staff.filter(s => s.status === 'ปฏิบัติงาน');
+    availableStaff.forEach(s => {
+        currentCounts[s.id] = { weekdayShifts: 0, holidayShifts: 0, totalHours: 0 };
+    });
+
+    const daysInMonth = new Date(state.currentYear, state.currentMonth + 1, 0).getDate();
+
+    // 2. Loop through each day of the month
+    for (let day = 1; day <= daysInMonth; day++) {
+        const fullDate = `${state.currentYear}-${String(state.currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayOfWeek = new Date(state.currentYear, state.currentMonth, day).getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const isHoliday = state.holidays.includes(fullDate);
+        const isHolidayOrWeekend = isWeekend || isHoliday;
+
+        const unavailableStaffIds = state.requests
+            .filter(r => r.date === fullDate && r.status === 'approved')
+            .map(r => r.staffId);
+
+        const getEligibleStaff = (position) => {
+            return availableStaff
+                .filter(s => s.position === position && !unavailableStaffIds.includes(s.id))
+                .sort(() => Math.random() - 0.5); // Shuffle for fairness
+        };
+        
+        const findBestCandidate = (staffList, countType) => {
+            if (staffList.length === 0) return null;
+
+            staffList.sort((a, b) => {
+                const targetA = state.scheduleTargets[a.id] || {};
+                const targetB = state.scheduleTargets[b.id] || {};
+                const countsA = currentCounts[a.id];
+                const countsB = currentCounts[b.id];
+
+                // --- Priority 1: Check if anyone is under their specific shift target ---
+                const targetA_count = targetA[countType];
+                if (targetA_count != null && countsA[countType] < targetA_count) {
+                    const targetB_count = targetB[countType];
+                    if (targetB_count == null || countsB[countType] >= targetB_count) {
+                        return -1; // A is under target, B is not. A gets priority.
+                    }
+                }
+                const targetB_count = targetB[countType];
+                 if (targetB_count != null && countsB[countType] < targetB_count) {
+                     if(targetA_count == null || countsA[countType] >= targetA_count) {
+                        return 1; // B is under target, A is not. B gets priority.
+                     }
+                 }
+                
+                // --- Priority 2: General balancing (lowest count/hours first) ---
+                if (countsA[countType] < countsB[countType]) return -1;
+                if (countsB[countType] < countsA[countType]) return 1;
+                if (countsA.totalHours < countsB.totalHours) return -1;
+                if (countsB.totalHours < countsA.totalHours) return 1;
+
+                return 0; // Equal priority
+            });
+            return staffList[0];
+        };
+
+        state.schedule[fullDate] = state.schedule[fullDate] || {};
+
+        if (isHolidayOrWeekend) {
+            const countType = 'holidayShifts';
+            const availablePharmacists = getEligibleStaff('เภสัชกร');
+            const availableAssistants = getEligibleStaff('เจ้าพนักงานเภสัชกรรม');
+            const availableServices = getEligibleStaff('พนักงานบริการ');
+            
+            const pharmacist = findBestCandidate(availablePharmacists, countType);
+            const assistant = findBestCandidate(availableAssistants, countType);
+            const service = findBestCandidate(availableServices, countType);
+            
+            if (pharmacist) {
+                state.schedule[fullDate].pharmacistId = pharmacist.id;
+                currentCounts[pharmacist.id][countType]++;
+                currentCounts[pharmacist.id].totalHours += 12;
+            }
+            if (assistant) {
+                state.schedule[fullDate].assistantId = assistant.id;
+                currentCounts[assistant.id][countType]++;
+                currentCounts[assistant.id].totalHours += 12;
+            }
+            if (service) {
+                state.schedule[fullDate].staffId = service.id;
+                currentCounts[service.id][countType]++;
+                currentCounts[service.id].totalHours += 8;
+            }
+        } else { // Weekday
+            const countType = 'weekdayShifts';
+            const availablePharmacists = getEligibleStaff('เภสัชกร');
+            const availableAssistants = getEligibleStaff('เจ้าพนักงานเภสัชกรรม');
+
+            const pharmacist = findBestCandidate(availablePharmacists, countType);
+            const assistant = findBestCandidate(availableAssistants, countType);
+
+            state.schedule[fullDate].afternoon = {};
+            if(pharmacist) {
+                 state.schedule[fullDate].afternoon.pharmacist = pharmacist.id;
+                 currentCounts[pharmacist.id][countType]++;
+                 currentCounts[pharmacist.id].totalHours += 4;
+            }
+            if(assistant) {
+                 state.schedule[fullDate].afternoon.assistant = assistant.id;
+                 currentCounts[assistant.id][countType]++;
+                 currentCounts[assistant.id].totalHours += 4;
+            }
+        }
+    }
+}
+
+
+// ===================================================================================
+// INITIALIZATION
+// ===================================================================================
+document.getElementById('nav-dashboard').addEventListener('click', () => navigate('dashboard'));
+document.getElementById('nav-staff').addEventListener('click', () => navigate('staff'));
+
+render(); // Initial render
+</script>
+
+</body>
+</html>
+
