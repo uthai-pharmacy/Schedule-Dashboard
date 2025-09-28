@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>โปรแกรมจัดตารางเวรห้องยา (Uthai Pharmacy)</title>
+    <title>โปรแกรมจัดตารางเวร (Final Version)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -472,8 +472,8 @@ function renderSummaryTable() {
                             <th class="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-600">ชื่อ-สกุล</th>
                             <th class="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-600">ชื่อเล่น</th>
                             <th class="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-600">ตำแหน่ง</th>
-                            <th class="whitespace-nowrap px-4 py-3 text-center font-semibold text-slate-600">เวรวันธรรมดา (ครั้ง)</th>
-                            <th class="whitespace-nowrap px-4 py-3 text-center font-semibold text-slate-600">เวรวันหยุด (ครั้ง)</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-center font-semibold text-slate-600">เป้าหมายเวรวันธรรมดา</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-center font-semibold text-slate-600">เป้าหมายเวรวันหยุด</th>
                             <th class="whitespace-nowrap px-4 py-3 text-center font-semibold text-slate-600">ชั่วโมงรวม (คำนวณ)</th>
                         </tr>
                     </thead>
@@ -812,17 +812,15 @@ function confirmAutoScheduler() {
 }
 
 function autoScheduleAlgorithm() {
-    // 1. Reset current schedule and initialize counters
     state.schedule = {};
     const currentCounts = {};
     const availableStaff = state.staff.filter(s => s.status === 'ปฏิบัติงาน');
     availableStaff.forEach(s => {
-        currentCounts[s.id] = { weekdayShifts: 0, holidayShifts: 0, totalHours: 0 };
+        currentCounts[s.id] = { weekdayShifts: 0, holidayShifts: 0, totalHours: 0, lastWorkedDay: -1 };
     });
 
     const daysInMonth = new Date(state.currentYear, state.currentMonth + 1, 0).getDate();
 
-    // 2. Loop through each day of the month
     for (let day = 1; day <= daysInMonth; day++) {
         const fullDate = `${state.currentYear}-${String(state.currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const dayOfWeek = new Date(state.currentYear, state.currentMonth, day).getDay();
@@ -836,11 +834,10 @@ function autoScheduleAlgorithm() {
 
         const getEligibleStaff = (position) => {
             return availableStaff
-                .filter(s => s.position === position && !unavailableStaffIds.includes(s.id))
-                .sort(() => Math.random() - 0.5); // Shuffle for fairness
+                .filter(s => s.position === position && !unavailableStaffIds.includes(s.id));
         };
         
-        const findBestCandidate = (staffList, countType) => {
+        const findBestCandidate = (staffList, countType, day) => {
             if (staffList.length === 0) return null;
 
             staffList.sort((a, b) => {
@@ -849,28 +846,28 @@ function autoScheduleAlgorithm() {
                 const countsA = currentCounts[a.id];
                 const countsB = currentCounts[b.id];
 
-                // --- Priority 1: Check if anyone is under their specific shift target ---
                 const targetA_count = targetA[countType];
                 if (targetA_count != null && countsA[countType] < targetA_count) {
                     const targetB_count = targetB[countType];
-                    if (targetB_count == null || countsB[countType] >= targetB_count) {
-                        return -1; // A is under target, B is not. A gets priority.
-                    }
+                    if (targetB_count == null || countsB[countType] >= targetB_count) return -1;
                 }
                 const targetB_count = targetB[countType];
                  if (targetB_count != null && countsB[countType] < targetB_count) {
-                     if(targetA_count == null || countsA[countType] >= targetA_count) {
-                        return 1; // B is under target, A is not. B gets priority.
-                     }
+                     if(targetA_count == null || countsA[countType] >= targetA_count) return 1;
                  }
                 
-                // --- Priority 2: General balancing (lowest count/hours first) ---
                 if (countsA[countType] < countsB[countType]) return -1;
                 if (countsB[countType] < countsA[countType]) return 1;
+
+                const aWorkedYesterday = countsA.lastWorkedDay === day - 1;
+                const bWorkedYesterday = countsB.lastWorkedDay === day - 1;
+                if (!aWorkedYesterday && bWorkedYesterday) return -1;
+                if (aWorkedYesterday && !bWorkedYesterday) return 1;
+
                 if (countsA.totalHours < countsB.totalHours) return -1;
                 if (countsB.totalHours < countsA.totalHours) return 1;
 
-                return 0; // Equal priority
+                return Math.random() - 0.5;
             });
             return staffList[0];
         };
@@ -879,47 +876,55 @@ function autoScheduleAlgorithm() {
 
         if (isHolidayOrWeekend) {
             const countType = 'holidayShifts';
-            const availablePharmacists = getEligibleStaff('เภสัชกร');
-            const availableAssistants = getEligibleStaff('เจ้าพนักงานเภสัชกรรม');
-            const availableServices = getEligibleStaff('พนักงานบริการ');
             
-            const pharmacist = findBestCandidate(availablePharmacists, countType);
-            const assistant = findBestCandidate(availableAssistants, countType);
-            const service = findBestCandidate(availableServices, countType);
+            let availablePharmacists = getEligibleStaff('เภสัชกร');
+            let availableAssistants = getEligibleStaff('เจ้าพนักงานเภสัชกรรม');
+            let availableServices = getEligibleStaff('พนักงานบริการ');
             
+            const pharmacist = findBestCandidate(availablePharmacists, countType, day);
             if (pharmacist) {
                 state.schedule[fullDate].pharmacistId = pharmacist.id;
                 currentCounts[pharmacist.id][countType]++;
                 currentCounts[pharmacist.id].totalHours += 12;
+                currentCounts[pharmacist.id].lastWorkedDay = day;
             }
+            
+            const assistant = findBestCandidate(availableAssistants, countType, day);
             if (assistant) {
                 state.schedule[fullDate].assistantId = assistant.id;
                 currentCounts[assistant.id][countType]++;
                 currentCounts[assistant.id].totalHours += 12;
+                currentCounts[assistant.id].lastWorkedDay = day;
             }
+
+            const service = findBestCandidate(availableServices, countType, day);
             if (service) {
                 state.schedule[fullDate].staffId = service.id;
                 currentCounts[service.id][countType]++;
                 currentCounts[service.id].totalHours += 8;
+                currentCounts[service.id].lastWorkedDay = day;
             }
+
         } else { // Weekday
             const countType = 'weekdayShifts';
-            const availablePharmacists = getEligibleStaff('เภสัชกร');
-            const availableAssistants = getEligibleStaff('เจ้าพนักงานเภสัชกรรม');
+            let availablePharmacists = getEligibleStaff('เภสัชกร');
+            let availableAssistants = getEligibleStaff('เจ้าพนักงานเภสัชกรรม');
 
-            const pharmacist = findBestCandidate(availablePharmacists, countType);
-            const assistant = findBestCandidate(availableAssistants, countType);
-
+            const pharmacist = findBestCandidate(availablePharmacists, countType, day);
             state.schedule[fullDate].afternoon = {};
             if(pharmacist) {
                  state.schedule[fullDate].afternoon.pharmacist = pharmacist.id;
                  currentCounts[pharmacist.id][countType]++;
                  currentCounts[pharmacist.id].totalHours += 4;
+                 currentCounts[pharmacist.id].lastWorkedDay = day;
             }
+
+            const assistant = findBestCandidate(availableAssistants, countType, day);
             if(assistant) {
                  state.schedule[fullDate].afternoon.assistant = assistant.id;
                  currentCounts[assistant.id][countType]++;
                  currentCounts[assistant.id].totalHours += 4;
+                 currentCounts[assistant.id].lastWorkedDay = day;
             }
         }
     }
